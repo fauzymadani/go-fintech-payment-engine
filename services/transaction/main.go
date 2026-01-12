@@ -17,6 +17,8 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"FinTechPorto/internal/database"
 )
 
 // transactionService implements transactionv1connect.TransactionServiceHandler
@@ -76,6 +78,12 @@ func (s *transactionService) GetTransactionStatus(ctx context.Context, req *conn
 func main() {
 	// Configure slog default logger
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+
+	// Initialize database (auto-migrate models)
+	if err := database.Connect(); err != nil {
+		slog.Error("database initialization failed", "error", err)
+		os.Exit(1)
+	}
 
 	r := chi.NewRouter()
 
