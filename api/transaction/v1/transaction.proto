@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package transaction.v1;
+
+option go_package = "FinTechPorto/gen/api/transaction/v1;transactionv1";
+
+import "google/protobuf/timestamp.proto";
+
+// TransactionStatus represents the current lifecycle state of a transaction.
+enum TransactionStatus {
+  // Default unspecified value.
+  UNSPECIFIED = 0;
+
+  // The transfer has been received and is awaiting processing.
+  PENDING = 1;
+
+  // The transfer completed successfully.
+  COMPLETED = 2;
+
+  // The transfer failed (insufficient funds, validation error, etc.).
+  FAILED = 3;
+
+  // The transfer was reversed after completion.
+  REVERSED = 4;
+}
+
+// CreateTransferRequest is used to initiate a fund transfer between two accounts.
+message CreateTransferRequest {
+  // Unique identifier for the account initiating the transfer (e.g., UUID).
+  string sender_id = 1;
+
+  // Unique identifier for the recipient account (e.g., UUID).
+  string recipient_id = 2;
+
+  // Amount in minor units (e.g., cents). Use an integer to avoid floating point issues.
+  int64 amount = 3;
+
+  // Currency as an ISO 4217 code, for example "USD" or "EUR".
+  string currency = 4;
+
+  // Optional short memo or description attached to the transfer.
+  optional string memo = 5;
+}
+
+// CreateTransferResponse returns the created transaction identifier and initial status.
+message CreateTransferResponse {
+  // Server-assigned transaction ID.
+  string transaction_id = 1;
+
+  // Initial status of the transaction (often PENDING).
+  TransactionStatus status = 2;
+
+  // The created transaction record (optional, may be included for convenience).
+  Transaction transaction = 3;
+}
+
+// GetTransactionStatusRequest is used to query a transaction by its ID.
+message GetTransactionStatusRequest {
+  string transaction_id = 1;
+}
+
+// GetTransactionStatusResponse returns the current status and optional details.
+message GetTransactionStatusResponse {
+  string transaction_id = 1;
+  TransactionStatus status = 2;
+
+  // When the transaction failed, a human-readable reason may be provided.
+  string failure_reason = 3;
+
+  // Full transaction details (optional convenience field).
+  Transaction transaction = 4;
+}
+
+// Transaction is a record representing a transfer between two accounts.
+message Transaction {
+  string transaction_id = 1;
+  string sender_id = 2;
+  string recipient_id = 3;
+  int64 amount = 4;
+  string currency = 5;
+  TransactionStatus status = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  optional string memo = 9;
+}
+
+// TransactionService defines RPCs for creating transfers and checking status.
+service TransactionService {
+  // CreateTransfer initiates a funds transfer between two accounts.
+  rpc CreateTransfer(CreateTransferRequest) returns (CreateTransferResponse);
+
+  // GetTransactionStatus returns the status of a previously created transaction.
+  rpc GetTransactionStatus(GetTransactionStatusRequest) returns (GetTransactionStatusResponse);
+}
