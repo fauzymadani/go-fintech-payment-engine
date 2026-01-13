@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"log/slog"
 
@@ -14,19 +15,24 @@ import (
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	_ "google.golang.org/protobuf/types/known/timestamppb"
 
 	"FinTechPorto/services/transaction/repository"
+
+	"go.temporal.io/sdk/client"
+
+	"FinTechPorto/internal/workflow"
 )
 
 // transactionHandler implements transactionv1connect.TransactionServiceHandler
 type transactionHandler struct {
-	repo *repository.Repository
+	repo    *repository.Repository
+	tclient client.Client
 }
 
 // NewHandler creates a new transactionHandler.
-func NewHandler(repo *repository.Repository) *transactionHandler {
-	return &transactionHandler{repo: repo}
+func NewHandler(repo *repository.Repository, tc client.Client) *transactionHandler {
+	return &transactionHandler{repo: repo, tclient: tc}
 }
 
 func (s *transactionHandler) CreateTransfer(ctx context.Context, req *connectgo.Request[v1.CreateTransferRequest]) (*connectgo.Response[v1.CreateTransferResponse], error) {
@@ -45,38 +51,32 @@ func (s *transactionHandler) CreateTransfer(ctx context.Context, req *connectgo.
 		memo = &m
 	}
 
-	tr, err := s.repo.TransferFunds(ctx, req.Msg.SenderId, req.Msg.RecipientId, req.Msg.Amount, req.Msg.Currency, memo)
+	// Build workflow params
+	params := workflow.TransferParams{
+		SenderID:    req.Msg.SenderId,
+		RecipientID: req.Msg.RecipientId,
+		Amount:      req.Msg.Amount,
+		Currency:    req.Msg.Currency,
+		Memo:        memo,
+	}
+
+	// Start workflow asynchronously
+	workflowID := "transfer-" + time.Now().Format("20060102-150405-000000")
+	run, err := s.tclient.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        workflowID,
+		TaskQueue: "transaction-task-queue",
+	}, workflow.TransferWorkflow, params)
 	if err != nil {
-		// Map repository errors to connect errors
-		if errors.Is(err, repository.ErrAccountNotFound) {
-			return nil, connectgo.NewError(connectgo.CodeNotFound, err)
-		}
-		if errors.Is(err, repository.ErrInsufficientFunds) {
-			return nil, connectgo.NewError(connectgo.CodeInvalidArgument, err)
-		}
+		slog.Error("failed to start workflow", "error", err)
 		return nil, connectgo.NewError(connectgo.CodeInternal, err)
 	}
 
-	now := timestamppb.Now()
-	respTx := &v1.Transaction{
-		TransactionId: tr.ID,
-		SenderId:      tr.SenderID,
-		RecipientId:   tr.RecipientID,
-		Amount:        tr.Amount,
-		Currency:      tr.Currency,
-		Status:        v1.TransactionStatus_COMPLETED,
-		CreatedAt:     now,
-	}
-	if tr.Memo != "" {
-		m := tr.Memo
-		respTx.Memo = &m
-	}
-
+	// Return immediate response with workflow/run id and PENDING status
 	resp := &v1.CreateTransferResponse{
-		TransactionId: tr.ID,
-		Status:        v1.TransactionStatus_COMPLETED,
-		Transaction:   respTx,
+		TransactionId: workflowID,
+		Status:        v1.TransactionStatus_PENDING,
 	}
+	_ = run
 	return connectgo.NewResponse(resp), nil
 }
 
