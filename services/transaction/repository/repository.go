@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"FinTechPorto/internal/broker"
 	"FinTechPorto/internal/models"
 
 	"gorm.io/gorm"
@@ -20,12 +21,13 @@ var (
 
 // Repository wraps DB operations for transactions and accounts.
 type Repository struct {
-	db *gorm.DB
+	db     *gorm.DB
+	Broker *broker.KafkaWriter
 }
 
 // New creates a new Repository.
-func New(db *gorm.DB) *Repository {
-	return &Repository{db: db}
+func New(db *gorm.DB, b *broker.KafkaWriter) *Repository {
+	return &Repository{db: db, Broker: b}
 }
 
 // TransferFunds transfers amount from senderID to recipientID within a DB transaction.
@@ -82,6 +84,20 @@ func (r *Repository) TransferFunds(ctx context.Context, senderID, recipientID st
 
 		if err := tx.Create(&tr).Error; err != nil {
 			return fmt.Errorf("failed to create transaction record: %w", err)
+		}
+
+		// Publish event to Kafka inside the transaction. If publishing fails, return error to rollback.
+		if r.Broker != nil {
+			event := map[string]interface{}{
+				"transaction_id": tr.ID,
+				"sender_id":      tr.SenderID,
+				"recipient_id":   tr.RecipientID,
+				"amount":         tr.Amount,
+				"status":         "COMPLETED",
+			}
+			if err := r.Broker.PublishTransactionEvent(ctx, event); err != nil {
+				return fmt.Errorf("failed to publish transaction event: %w", err)
+			}
 		}
 
 		createdTx = tr

@@ -5,6 +5,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/joho/godotenv"
+
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -54,6 +56,14 @@ func getDSN() string {
 
 // Connect opens a DB connection and runs AutoMigrate.
 func Connect() error {
+	// Load .env file (helpful for local development). It's OK if it's missing in production.
+	if err := godotenv.Load(); err == nil {
+		slog.Info(".env file loaded")
+	} else {
+		// Log the error but continue — missing .env is acceptable.
+		slog.Info(".env file not found; proceeding without it", "error", err)
+	}
+
 	// configure GORM logger
 	newLogger := logger.New(
 		logWriter{},

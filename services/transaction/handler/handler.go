@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"log/slog"
 
@@ -120,7 +121,14 @@ func (s *transactionHandler) SetupRouter() http.Handler {
 	})
 
 	path, handler := transactionv1connect.NewTransactionServiceHandler(s)
+	// register multiple path variants to ensure correct routing
 	r.Handle(path, handler)
+	// without trailing slash
+	trimmed := strings.TrimRight(path, "/")
+	r.Handle(trimmed, handler)
+	// wildcard forms
+	r.Handle(path+"*", handler)
+	r.Handle(trimmed+"/*", handler)
 
 	// Wrap with H2C
 	return h2c.NewHandler(r, &http2.Server{})
